@@ -47,9 +47,14 @@ export async function GET() {
     })),
     cameras: cameras.map((c) => {
       const ip = c.device.interfaces[0]?.ipAdds.find((x) => x.isPrimary)?.address || c.device.interfaces[0]?.ipAdds[0]?.address || null;
+      const behindNvrPoe = c.device.notes.includes("PoE داخلی") || c.device.identityKey === "CAM-05" || c.device.identityKey === "CAM-06";
       // ۵ وضعیت مستقل (سند ۶.۴)
       const networkOk = c.device.status === "online";           // دستگاه در شبکه پاسخ می‌دهد
-      const serviceOk = networkOk || c.behindNvrPoe;            // سرویس دوربین — پشت NVR از API
+      // وضعیت سرویس: ابتدا نتیجه واقعی پروب ONVIF (فاز ۳)؛ در نبود آن، استنباط محافظه‌کارانه قبلی
+      const serviceKnown = c.serviceState !== "unknown";
+      const serviceOk = serviceKnown
+        ? c.serviceState === "onvif-ok"
+        : (networkOk || behindNvrPoe);
       const ch = c.recorderId ? channelByCameraId.get(c.id) : undefined;
       const nvrOnline = ch ? ch.online === "online" : false;
       const recording = ch ? ch.recording : "unknown";
@@ -58,12 +63,14 @@ export async function GET() {
       return {
         id: c.id, deviceId: c.deviceId, identityKey: c.device.identityKey,
         name: c.device.hostname || c.device.identityKey,
-        vendor: c.vendor, model: c.model, firmware: c.firmware, serial: c.serial,
-        onvifSupport: c.onvifSupport, poeStatus: c.poeStatus,
+        vendor: c.vendor || c.device.vendor, model: c.model || c.device.model, firmware: c.firmware || c.device.firmware, serial: c.serial,
+        onvifSupport: c.onvifSupport, poeStatus: c.poeStatus, poeWatts: c.poeWatts,
         switchPort: c.switchPort, ip, status: c.device.status,
+        serviceState: c.serviceState, discoverySource: c.discoverySource,
         recorderId: c.recorderId, recorderName: c.recorder?.device.hostname || null,
         channelNo: c.channelNo, streamInfo: c.streamInfo,
         lastSeen: c.device.lastSeen, lastRecordingCheck: c.lastRecordingCheck,
+        lastOnvifAt: c.lastOnvifAt,
         isSimulated: c.device.isSimulated,
         behindNvrPoe: c.device.notes.includes("PoE داخلی") || c.device.identityKey === "CAM-05" || c.device.identityKey === "CAM-06",
         behindRadio: c.device.identityKey === "CAM-07",
@@ -71,6 +78,7 @@ export async function GET() {
         states: {
           networkResponds: networkOk,
           serviceResponds: serviceOk,
+          serviceKnown, // آیا سرویس واقعاً پروب شده؟ (فاز ۳)
           streamReceivable: streamChecked, // پیش‌فرض بررسی نشده — حفاظت از محتوا
           nvrReportsOnline: nvrOnline,
           recordingActive: recording === "active",

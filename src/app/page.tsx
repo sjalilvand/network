@@ -16,6 +16,7 @@ import { GuidesView } from "@/components/netscope/GuidesView";
 import { AlertsView } from "@/components/netscope/AlertsView";
 import { SettingsView } from "@/components/netscope/SettingsView";
 import { Phase2View } from "@/components/netscope/Phase2View";
+import { Phase3View } from "@/components/netscope/Phase3View";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -23,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Radar, ClipboardList, Lightbulb, MonitorSmartphone, Network, Cctv,
   Activity, Microscope, BookOpen, ScrollText, Settings2, Menu,
-  OctagonX, RefreshCw, Radio, CircleAlert, Database, Waypoints, FileWarning, Workflow,
+  OctagonX, RefreshCw, Radio, CircleAlert, Database, Waypoints, FileWarning, Workflow, ScanSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { postJson } from "@/components/netscope/shared";
@@ -38,6 +39,7 @@ const NAV = [
   { id: "analysis", label: "تحلیل و تشریح شبکه", icon: Microscope, desc: "یافته‌های شواهد‌محور" },
   { id: "guides", label: "راهنماها و ورود خروجی", icon: BookOpen, desc: "استخراج اطلاعات" },
   { id: "phase2", label: "جمع‌آوری پیشرفته (فاز ۲)", icon: Workflow, desc: "SNMP، LLDP/FDB، سنجه‌ها" },
+  { id: "phase3", label: "دوربین‌ها و NVR (فاز ۳)", icon: ScanSearch, desc: "ONVIF، پلاگین ضبط‌کننده، PoE" },
   { id: "alerts", label: "هشدارها و تاریخچه", icon: ScrollText, desc: "تغییرات و ممیزی" },
   { id: "settings", label: "عامل‌ها و تنظیمات", icon: Settings2, desc: "دسترسی‌ها و سیاست‌ها" },
 ];
@@ -233,6 +235,7 @@ export default function Home() {
               {view === "analysis" && <AnalysisView />}
               {view === "guides" && <GuidesView />}
               {view === "phase2" && <Phase2View />}
+              {view === "phase3" && <Phase3View />}
               {view === "alerts" && <AlertsView />}
               {view === "settings" && <SettingsView />}
             </div>

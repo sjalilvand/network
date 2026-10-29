@@ -310,8 +310,14 @@ model Camera {
   serial        String?
   onvifSupport  Boolean  @default(false)
   onvifProfiles String   @default("[]")
+  onvifXAddr    String?  // فاز ۳: آدرس سرویس دستگاه ONVIF (بدون اطلاعات ورود)
+  serviceState  String   @default("unknown") // فاز ۳: onvif-ok | onvif-fail | needs-auth | unknown — وضعیت سرویس مستقل از شبکه (سند ۶.۴)
+  lastOnvifAt   DateTime?
+  discoverySource String @default("") // فاز ۳: onvif-wsdiscovery | nvr-api | manual
   poeStatus     String?  // poe-ok | poe-none | poe-fault | null=نامشخص
+  poeWatts      Float?   // فاز ۳: توان مصرفی PoE روی پورت سوئیچ/ضبط‌کننده
   switchPort    String?
+  switchDeviceId String? // فاز ۳: سوئیچ تأمین‌کننده PoE — برای مدل دوربین-سوئیچ-PoE
   recorderId    String?
   channelNo     Int?
   streamInfo    String   @default("") // بدون دریافت محتوا — فقط مشخصات (الزام سند بخش ۶.۵)
@@ -332,7 +338,11 @@ model Recorder {
   firmware     String?
   channelCount Int      @default(0)
   poeInternal  Boolean  @default(false) // شبکه داخلی PoE
+  pluginId     String?  // فاز ۳: شناسه پلاگین سازنده استفاده‌شده (مثلا dahua-http-api)
+  pluginVersion String? // فاز ۳: نسخه پلاگین هنگام آخرین همگام‌سازی — الزام نسخه‌بندی سند ۳.۳
+  apiPath      String?  // فاز ۳: مسیر API سازنده (ISAPI / cgi-bin / onvif)
   storageInfo  String   @default("") // وضعیت ذخیره‌سازی و خطاهای دیسک
+  lastSyncAt   DateTime? // فاز ۳: آخرین همگام‌سازی موفق کانال‌ها
   lastSeen     DateTime?
 
   device   Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
@@ -347,6 +357,9 @@ model RecorderChannel {
   cameraId    String?
   online      String   @default("unknown") // online | offline | unknown — وضعیت آنلاین‌بودن کانال
   recording   String   @default("unknown") // active | inactive | unknown — وضعیت ضبط واقعی (مستقل از آنلاین)
+  source      String   @default("nvr-api") // فاز ۳: nvr-api | onvif | manual — منبع این رکورد
+  cameraIpRaw String?  // فاز ۳: IP خام گزارش‌شده از خروجی ضبط‌کننده (برای تطبیق شفاف)
+  cameraLabelRaw String? // فاز ۳: برچسب خام کانال از ضبط‌کننده
   lastVerified DateTime?
 
   @@unique([recorderId, channelNo])

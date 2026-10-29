@@ -100,7 +100,7 @@ async function audit(projectId: string, action: string, target = "", detail = ""
   await db.auditLog.create({ data: { projectId, action, target, detail } });
 }
 
-async function addEvidence(data: {
+export async function addEvidence(data: {
   projectId: string; deviceId?: string | null; linkId?: string | null; checklistKey?: string | null;
   kind: string; sourceMethod: string; content: string; confidence?: string;
   isSimulated?: boolean; agentId?: string | null; validityMinutes?: number;
