@@ -1,0 +1,399 @@
+// NetScope — سامانه هوشمند کشف، تحلیل و مانیتورینگ شبکه
+// مدل داده بر اساس سند نیازمندی‌ها نسخه ۲.۰ — بخش ۱۰
+// نکته: SQLite از enum پشتیبانی نمی‌کند؛ وضعیت‌ها به صورت String با مقادیر کنترل‌شده نگهداری می‌شوند.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── پروژه و عامل‌ها ───────────────────────────────────────────────
+
+model NetworkProject {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  scope       String   @default("[]") // JSON: محدوده‌های CIDR تأییدشده توسط کاربر
+  settings    String   @default("{}") // JSON: تنظیمات ایمنی و رفتار
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  devices  Device[]
+  networks Network[]
+  links    Link[]
+  agents   Agent[]
+}
+
+model Agent {
+  id          String    @id @default(cuid())
+  projectId   String
+  name        String
+  platform    String // windows | linux | simulated
+  hostname    String
+  version     String    @default("1.0.0")
+  status      String    @default("offline") // online | offline | degraded
+  isSimulated Boolean   @default(false)
+  isNative    Boolean   @default(false) // اجرای بومی (نه WSL/کانتینر/VM) — الزام سند بخش ۹
+  lastSeen    DateTime?
+  createdAt   DateTime  @default(now())
+
+  project NetworkProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// ─── شبکه‌ها و دستگاه‌ها ───────────────────────────────────────────
+
+model Network {
+  id            String   @id @default(cuid())
+  projectId     String
+  cidr          String
+  name          String   @default("")
+  family        String   @default("IPv4") // IPv4 | IPv6
+  vlanId        Int?
+  gateway       String?
+  discoveredVia String   @default("manual") // agent | user | dhcp | route
+  confidence    String   @default("inferred") // verified | inferred | unknown
+  scopeApproved Boolean  @default(false) // الزام سند بخش ۱۲: اسکن فقط در محدوده تأییدشده
+  notes         String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project NetworkProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model Device {
+  id           String    @id @default(cuid())
+  projectId    String
+  identityKey  String    @unique // هویت ترکیبی — الزام سند بخش ۴.۲ (نه فقط IP)
+  hostname     String?
+  vendor       String?
+  model        String?
+  firmware     String?
+  serial       String?
+  type         String    @default("unknown") // router | switch | radio | ap | camera | nvr | server | pc | printer | unknown
+  role         String    @default("") // نقش احتمالی — با ذکر شواهد
+  roleEvidence String    @default("") // مثال سند بخش ۴.۳: «احتمالاً دوربین IP؛ براساس پاسخ ONVIF...»
+  confidence   String    @default("unknown") // verified | inferred | unknown
+  status       String    @default("unknown") // online | offline | unknown
+  sensitivity  String    @default("normal") // high | normal | low — برای نرخ پایش تطبیقی
+  criticality  String    @default("normal") // مهم بودن برای زمان‌بندی تطبیقی
+  firstSeen    DateTime  @default(now())
+  lastSeen     DateTime?
+  agentId      String?
+  mergedIntoId String? // ادغام دستی دستگاه‌ها — الزام سند بخش ۴.۲
+  isReference  Boolean   @default(false) // عضو فهرست مرجع شبکه آزمایشی (معیار پذیرش ۱۴)
+  isSimulated  Boolean   @default(false)
+  notes        String    @default("")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project     NetworkProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  interfaces  Interface[]
+  cameras     Camera[]
+  recorders   Recorder[]
+  linksFrom   Link[]           @relation("linkSrc")
+  linksTo     Link[]           @relation("linkDst")
+  metrics     Metric[]
+  alerts      Alert[]
+  observations Observation[]
+}
+
+model Interface {
+  id       String  @id @default(cuid())
+  deviceId String
+  name     String
+  mac      String?
+  mtu      Int?
+  speed    String?
+  status   String  @default("unknown") // up | down | unknown
+  itype    String  @default("ethernet") // ethernet | wireless | loopback | virtual | radio
+
+  device  Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  ipAdds  IPAssignment[]
+}
+
+model IPAssignment {
+  id          String   @id @default(cuid())
+  interfaceId String
+  address     String
+  prefix      Int?
+  family      String   @default("IPv4")
+  isPrimary   Boolean  @default(false)
+  source      String   @default("discovery") // agent | dhcp | static | discovery | user
+  firstSeen   DateTime @default(now())
+  lastSeen    DateTime @default(now())
+
+  interface Interface @relation(fields: [interfaceId], references: [id], onDelete: Cascade)
+}
+
+// ─── اتصال‌ها — سه نوع رابطه (سند بخش ۵) ──────────────────────────
+
+model Link {
+  id           String    @id @default(cuid())
+  projectId    String
+  srcDeviceId  String
+  dstDeviceId  String
+  kind         String // physical | logical | functional — نمایش جدا الزامی است
+  relation     String    @default("") // camera-to-switch | upstream-link | vlan-membership | gateway | nvr-channel | dns-dependency | ...
+  srcPort      String?
+  dstPort      String?
+  vlan         Int?
+  sourceMethod String    @default("inferred") // lldp | cdp | fdb | api | user-confirmed | inferred | nvr-api
+  confidence   String    @default("unknown") // verified | inferred | unknown
+  status       String    @default("active") // active | inactive | unknown
+  lastVerified DateTime?
+  evidenceText String    @default("")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  project NetworkProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  src     Device         @relation("linkSrc", fields: [srcDeviceId], references: [id], onDelete: Cascade)
+  dst     Device         @relation("linkDst", fields: [dstDeviceId], references: [id], onDelete: Cascade)
+}
+
+// ─── شواهد، مشاهدات و چک‌لیست ──────────────────────────────────────
+
+model Evidence {
+  id             String   @id @default(cuid())
+  projectId      String
+  deviceId       String?
+  linkId         String?
+  checklistKey   String? // اتصال شواهد به آیتم چک‌لیست
+  kind           String   @default("observation") // observation | command-output | agent-report | user-entry | panel-image | api-response
+  sourceMethod   String   @default("") // arp | snmp | onvif | agent | user | parse:ipconfig ...
+  content        String // متن شاهد — هر رابطه باید به شواهد متصل باشد (الزام سند بخش ۱۰)
+  confidence     String   @default("inferred") // verified | inferred | limited | untrusted
+  isSimulated    Boolean  @default(false)
+  agentId        String?
+  collectedAt    DateTime @default(now())
+  expiresAt      DateTime? // مدت اعتبار — تازگی داده
+}
+
+model Observation {
+  id         String   @id @default(cuid())
+  deviceId   String?
+  networkId  String?
+  key        String
+  value      String
+  observedAt DateTime @default(now())
+  source     String   @default("")
+
+  device Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model ChecklistItem {
+  id           String   @id @default(cuid())
+  projectId    String
+  groupKey     String // محیط اجرا | رابط‌ها | ... (۱۴ گروه سند بخش ۱.۱)
+  itemKey      String   @unique
+  title        String
+  status       String   @default("not-collected") // ۱۰ وضعیت سند بخش ۱.۲
+  applicable   Boolean  @default(true) // برای درصد تکمیل مرتبط — نداشتن رادیو/NVR نباید ناقص حساب شود
+  relevance    String   @default("auto") // auto | manual
+  targetDevice String?
+  value        String   @default("") // JSON مقدار
+  method       String   @default("") // روش و منبع دریافت
+  collectedAt  DateTime?
+  confidence   String   @default("") // سطح اطمینان
+  validity     String   @default("") // مدت اعتبار
+  accessReq    String   @default("") // نیازمندی دسترسی
+  guideKey     String?  // اتصال به راهنمای استخراج
+  error        String   @default("") // خطا یا علت دریافت‌نشدن
+  nextAction   String   @default("") // اقدام بعدی پیشنهادی
+  updatedAt    DateTime @updatedAt
+
+  attempts CollectionAttempt[]
+}
+
+model CollectionAttempt {
+  id             String   @id @default(cuid())
+  projectId      String
+  checklistKey   String?
+  method         String
+  target         String   @default("")
+  startedAt      DateTime @default(now())
+  finishedAt     DateTime?
+  result         String   @default("running") // success | failed | partial | running | blocked
+  failureReason  String   @default("") // نبود مسیر | Timeout | رد دسترسی | پروتکل غیرفعال | عدم پشتیبانی (الزام سند بخش ۲.۳)
+  trafficCost    String   @default("low") // low | medium | high — میزان ترافیک ایجادشده
+  notes          String   @default("")
+
+  checklist ChecklistItem? @relation(fields: [checklistKey], references: [itemKey], onDelete: SetNull)
+}
+
+// ─── راهنماها و دسترسی‌ها ──────────────────────────────────────────
+
+model ExtractionGuide {
+  id              String  @id @default(cuid())
+  guideKey        String  @unique
+  title           String
+  targetInfo      String // اطلاعات موردنیاز چیست؟
+  why             String // چرا به آن نیاز داریم؟
+  autoPossible    String  @default("yes") // yes | partial | no — آیا دریافت خودکار ممکن است؟
+  prerequisites   String  @default("") // پیش‌نیاز و سطح دسترسی
+  targetSystem    String  @default("") // اقدام روی کدام سیستم انجام می‌شود؟
+  expectedOutput  String  @default("") // خروجی مورد انتظار
+  fieldsToExtract String  @default("[]") // کدام بخش خروجی باید وارد شود؟
+  sensitiveFields String  @default("[]") // چه اطلاعات حساسی باید حذف شوند؟
+  validationRules String  @default("[]") // برنامه چگونه خروجی را اعتبارسنجی می‌کند؟
+  fallback        String  @default("") // اگر روش موفق نبود، راه جایگزین
+  platforms       String  @default("[]") // JSON: [{platform, commands[], notes}]
+  vendor          String? // راهنمای اختصاصی سازنده — الزام سند بخش ۳.۳
+  deviceModel     String?
+  category        String  @default("general") // general | switch | camera | nvr | radio
+}
+
+model CredentialReference {
+  id        String   @id @default(cuid())
+  projectId String
+  label     String
+  kind      String // snmpv3 | api | onvif | ssh-ro | panel — فقط مرجع؛ رمز ذخیره نمی‌شود (الزام سند بخش ۱۲)
+  target    String   @default("")
+  username  String?
+  readOnly  Boolean  @default(true)
+  hasSecret Boolean  @default(false) // نشان می‌دهد رمز از فرم امن وارد شده؛ مقدار آن نگهداری نمی‌شود
+  note      String   @default("")
+  createdAt DateTime @default(now())
+}
+
+// ─── نظارت تصویری (سند بخش ۶) ─────────────────────────────────────
+
+model Camera {
+  id            String   @id @default(cuid())
+  deviceId      String   @unique
+  vendor        String?
+  model         String?
+  firmware      String?
+  serial        String?
+  onvifSupport  Boolean  @default(false)
+  onvifProfiles String   @default("[]")
+  poeStatus     String?  // poe-ok | poe-none | poe-fault | null=نامشخص
+  switchPort    String?
+  recorderId    String?
+  channelNo     Int?
+  streamInfo    String   @default("") // بدون دریافت محتوا — فقط مشخصات (الزام سند بخش ۶.۵)
+  lastSeen      DateTime?
+  lastRecordingCheck DateTime?
+
+  device   Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  recorder Recorder?        @relation(fields: [recorderId], references: [id])
+  channels RecorderChannel[]
+}
+
+model Recorder {
+  id           String   @id @default(cuid())
+  deviceId     String   @unique
+  rtype        String   @default("NVR") // NVR | DVR | Hybrid
+  vendor       String?
+  model        String?
+  firmware     String?
+  channelCount Int      @default(0)
+  poeInternal  Boolean  @default(false) // شبکه داخلی PoE
+  storageInfo  String   @default("") // وضعیت ذخیره‌سازی و خطاهای دیسک
+  lastSeen     DateTime?
+
+  device   Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  cameras  Camera[]
+  channels RecorderChannel[]
+}
+
+model RecorderChannel {
+  id          String   @id @default(cuid())
+  recorderId  String
+  channelNo   Int
+  cameraId    String?
+  online      String   @default("unknown") // online | offline | unknown — وضعیت آنلاین‌بودن کانال
+  recording   String   @default("unknown") // active | inactive | unknown — وضعیت ضبط واقعی (مستقل از آنلاین)
+  lastVerified DateTime?
+
+  @@unique([recorderId, channelNo])
+
+  recorder Recorder @relation(fields: [recorderId], references: [id], onDelete: Cascade)
+  camera   Camera?  @relation(fields: [cameraId], references: [id])
+}
+
+// ─── متریک، هشدار، تحلیل ──────────────────────────────────────────
+
+model Metric {
+  id        String   @id @default(cuid())
+  deviceId  String
+  key       String // latency | loss | traffic-in | traffic-out | errors | drops | cpu | ram | temp | rssi | poe | channel-state | recording-state
+  value     Float
+  unit      String   @default("")
+  ts        DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Alert {
+  id           String   @id @default(cuid())
+  projectId    String
+  deviceId     String?
+  severity     String   @default("warning") // critical | warning | info
+  title        String
+  message      String
+  status       String   @default("active") // active | acked | resolved
+  kind         String   @default("device-down") // device-down | agent-down | ip-conflict | upstream-aggregate | ...
+  failures     Int      @default(1) // تعداد شکست‌های متوالی — الزام سند بخش ۸.۳ (هشدار پس از چند شکست)
+  aggregated   Boolean  @default(false) // تجمیع قطع سوئیچ بالادستی
+  rootCauseId  String?  // هشدار ریشه برای تجمیع
+  firstSeen    DateTime @default(now())
+  lastSeen     DateTime @default(now())
+  resolvedAt   DateTime?
+  evidenceText String   @default("")
+
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+}
+model AnalysisFinding {
+  id             String   @id @default(cuid())
+  projectId      String
+  title          String
+  description    String // شرح قابل‌فهم
+  relatedIds     String   @default("[]") // دستگاه‌ها/شبکه‌های مرتبط
+  evidenceText   String // شواهد
+  observedAt     DateTime @default(now())
+  confidence     String   @default("inferred") // verified | inferred | limited
+  impact         String   @default("") // اثر احتمالی
+  probableCauses String   @default("[]") // علت‌های محتمل
+  suggestedTests String   @default("[]") // آزمایش پیشنهادی
+  suggestedFix   String   @default("[]") // اقدام اصلاحی پیشنهادی
+  limitations    String   @default("") // محدودیت نتیجه‌گیری — الزام سند بخش ۷.۱
+  category       String   @default("general") // camera | connectivity | config | inventory | general
+  createdAt      DateTime @default(now())
+}
+
+model ManualAnnotation {
+  id         String   @id @default(cuid())
+  projectId  String
+  targetType String // device | link | checklist | network
+  targetId   String
+  field      String
+  value      String
+  author     String   @default("کاربر")
+  note       String   @default("")
+  createdAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  projectId String
+  actor     String   @default("کاربر")
+  action    String
+  target    String   @default("")
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+}
+
+model ChangeEvent {
+  id        String   @id @default(cuid())
+  projectId String
+  deviceId  String?
+  kind      String // ip-change | mac-change | new-device | status-change | link-change | ...
+  before    String   @default("")
+  after     String   @default("")
+  source    String   @default("")
+  at        DateTime @default(now())
+}
