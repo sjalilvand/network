@@ -87,6 +87,8 @@ model Device {
   isReference  Boolean   @default(false) // عضو فهرست مرجع شبکه آزمایشی (معیار پذیرش ۱۴)
   isSimulated  Boolean   @default(false)
   notes        String    @default("")
+  sysObjectID  String? // فاز ۲: شناسه SNMP — تعیین دقیق مدل/سازنده
+  lastSnmpAt   DateTime? // آخرین جمع‌آوری موفق SNMP
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -99,6 +101,8 @@ model Device {
   metrics     Metric[]
   alerts      Alert[]
   observations Observation[]
+  fdbEntries  FdbEntry[]
+  lldpNeighbors LldpNeighbor[]
 }
 
 model Interface {
@@ -110,6 +114,8 @@ model Interface {
   speed    String?
   status   String  @default("unknown") // up | down | unknown
   itype    String  @default("ethernet") // ethernet | wireless | loopback | virtual | radio
+  portRole String? // access | trunk | uplink | unknown — فاز ۲: نقش پورت از FDB/LLDP
+  trunkVlans String @default("[]") // JSON: فهرست VLANهای مجاز روی ترانک
 
   device  Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   ipAdds  IPAssignment[]
@@ -152,6 +158,40 @@ model Link {
   project NetworkProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
   src     Device         @relation("linkSrc", fields: [srcDeviceId], references: [id], onDelete: Cascade)
   dst     Device         @relation("linkDst", fields: [dstDeviceId], references: [id], onDelete: Cascade)
+}
+
+// ─── فاز ۲: جداول FDB و LLDP سوئیچ‌ها ────────────────────────
+
+model FdbEntry {
+  id        String   @id @default(cuid())
+  deviceId  String // سوئیچ
+  port      String // نام پورت/رابط
+  mac       String
+  vlanId    Int?
+  source    String   @default("snmp") // snmp | cli | api
+  isSimulated Boolean @default(false)
+  seenAt    DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, port, mac])
+}
+
+model LldpNeighbor {
+  id              String   @id @default(cuid())
+  deviceId        String // سوئیچ مشاهده‌کننده
+  localPort       String
+  remoteChassisId String // MAC چیسس همسایه
+  remotePortId    String?
+  remoteSysName   String?
+  remotePortDesc  String?
+  source          String   @default("snmp")
+  isSimulated     Boolean  @default(false)
+  seenAt          DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, localPort, remoteChassisId])
 }
 
 // ─── شواهد، مشاهدات و چک‌لیست ──────────────────────────────────────

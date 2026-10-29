@@ -57,3 +57,4 @@ server.log
 db/*.db
 dev.log
 server.log
+upload/

@@ -229,6 +229,22 @@ export const CHECKLIST_GROUPS: ChecklistGroupDef[] = [
         alternatePath: "راهنمای پنل یا تأیید دستی",
         guideKey: "switch-lldp",
       },
+      {
+        itemKey: "conn.fdb-table",
+        title: "جدول MAC سوئیچ (FDB)",
+        primaryPath: "SNMP (BRIDGE-MIB)",
+        alternatePath: "خروجی CLI: show mac address-table / bridge host print",
+        guideKey: "switch-snmp",
+        autoSource: "مبنای استنباط اتصال فیزیکی — قاعده: MAC روی پورت ≠ اتصال مستقیم (سند ۵.۲)",
+      },
+      {
+        itemKey: "conn.lldp-table",
+        title: "جدول همسایه‌های LLDP",
+        primaryPath: "SNMP (LLDP-MIB)",
+        alternatePath: "خروجی CLI: show lldp neighbors detail",
+        guideKey: "switch-lldp",
+        autoSource: "تنها منبع اتصال فیزیکی «تأییدشده» دوطرفه با پورت هر دو طرف",
+      },
     ],
   },
   {
